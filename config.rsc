@@ -1,3 +1,6 @@
+# sep/16/2021 13:26:19 by RouterOS 6.48.4
+# software id = 4HT6-UN0Y
+#
             script: #| Welcome to RouterOS!
                     #|    1) Set a strong router password in the System > Users menu
                     #|    2) Upgrade the software in the System > Packages menu
@@ -66,17 +69,19 @@
                      /interface bridge
                        add name=bridge disabled=no auto-mac=yes protocol-mode=rstp comment=defconf;
                      :local bMACIsSet 0;
-                     :foreach k in=[/interface find where !(slave=yes  || name="ether1" || name~"bridge")] do={
+                     :foreach k in=[/interface find where !(slave=yes   || name="ether1" || name~"bridge")] do={
                        :local tmpPortName [/interface get $k name];
                        :if ($bMACIsSet = 0) do={
                          :if ([/interface get $k type] = "ether") do={
-                           /interface bridge set "bridge" auto-mac=no admin-mac=[/interface ethernet get $tmpPortName mac-address>
+                           /interface bridge set "bridge" auto-mac=no admin-mac=[/interface get $tmpPortName mac-address];
                            :set bMACIsSet 1;
                          }
                        }
-                       /interface bridge port
-                         add bridge=bridge interface=$tmpPortName comment=defconf;
-                     }
+                         :if (([/interface get $k type] != "ppp-out") && ([/interface get $k type] != "lte")) do={
+                           /interface bridge port
+                             add bridge=bridge interface=$tmpPortName comment=defconf;
+                         }
+                       }
                        /ip pool add name="default-dhcp" ranges=192.168.88.10-192.168.88.254;
                        /ip dhcp-server
                          add name=defconf address-pool="default-dhcp" interface=bridge lease-time=10m disabled=no;
@@ -89,39 +94,43 @@
                      }
                     
                       /interface wireless {
-                        set wlan1 mode=ap-bridge band=2ghz-b/g/n disabled=no wireless-protocol=802.11 \
+                    :local ifcId [/interface wireless find where default-name=wlan1]
+                    :local currentName [/interface wireless get $ifcId name]
+                        set $ifcId mode=ap-bridge band=2ghz-b/g/n disabled=no wireless-protocol=802.11 \
                            distance=indoors installation=indoor
-                        set wlan1 channel-width=20/40mhz-XX;
-                        set wlan1 frequency=auto
-                        :local wlanMac  [/interface wireless get wlan1 mac-address];
+                        set $ifcId channel-width=20/40mhz-XX;
+                        set $ifcId frequency=auto
+                        :local wlanMac  [/interface wireless get $ifcId mac-address];
                         :set ssid "MikroTik-$[:pick $wlanMac 9 11]$[:pick $wlanMac 12 14]$[:pick $wlanMac 15 17]"
-                        set wlan1 ssid=$ssid
+                        set $ifcId ssid=$ssid
                       }
                       /interface wireless {
-                        set wlan2 mode=ap-bridge band=5ghz-a/n/ac disabled=no wireless-protocol=802.11 \
+                    :local ifcId [/interface wireless find where default-name=wlan2]
+                    :local currentName [/interface wireless get $ifcId name]
+                        set $ifcId mode=ap-bridge band=5ghz-a/n/ac disabled=no wireless-protocol=802.11 \
                            distance=indoors installation=indoor
-                        set wlan2 channel-width=20/40/80mhz-XXXX;
-                        set wlan2 frequency=auto
-                        :local wlanMac  [/interface wireless get wlan2 mac-address];
+                        set $ifcId channel-width=20/40/80mhz-XXXX;
+                        set $ifcId frequency=auto
+                        :local wlanMac  [/interface wireless get $ifcId mac-address];
                         :set ssid "MikroTik-$[:pick $wlanMac 9 11]$[:pick $wlanMac 12 14]$[:pick $wlanMac 15 17]"
-                        set wlan2 ssid=$ssid
+                        set $ifcId ssid=$ssid
                       }
                        /ip dhcp-client add interface=ether1 disabled=no comment="defconf";
                      /interface list member add list=LAN interface=bridge comment="defconf"
                      /interface list member add list=WAN interface=ether1 comment="defconf"
-                     /ip firewall nat add chain=srcnat out-interface-list=WAN ipsec-policy=out,none action=masquerade comment="de>
+                     /ip firewall nat add chain=srcnat out-interface-list=WAN ipsec-policy=out,none action=masquerade comment="defconf: masquerade"
                      /ip firewall {
-                       filter add chain=input action=accept connection-state=established,related,untracked comment="defconf: acce>
+                       filter add chain=input action=accept connection-state=established,related,untracked comment="defconf: accept established,related,untracked"
                        filter add chain=input action=drop connection-state=invalid comment="defconf: drop invalid"
                        filter add chain=input action=accept protocol=icmp comment="defconf: accept ICMP"
-                       filter add chain=input action=accept dst-address=127.0.0.1 comment="defconf: accept to local loopback (for>
+                       filter add chain=input action=accept dst-address=127.0.0.1 comment="defconf: accept to local loopback (for CAPsMAN)"
                        filter add chain=input action=drop in-interface-list=!LAN comment="defconf: drop all not coming from LAN"
                        filter add chain=forward action=accept ipsec-policy=in,ipsec comment="defconf: accept in ipsec policy"
                        filter add chain=forward action=accept ipsec-policy=out,ipsec comment="defconf: accept out ipsec policy"
-                       filter add chain=forward action=fasttrack-connection connection-state=established,related comment="defconf>
-                       filter add chain=forward action=accept connection-state=established,related,untracked comment="defconf: ac>
+                       filter add chain=forward action=fasttrack-connection connection-state=established,related comment="defconf: fasttrack"
+                       filter add chain=forward action=accept connection-state=established,related,untracked comment="defconf: accept established,related, untracked"
                        filter add chain=forward action=drop connection-state=invalid comment="defconf: drop invalid"
-                       filter add chain=forward action=drop connection-state=new connection-nat-state=!dstnat in-interface-list=W>
+                       filter add chain=forward action=drop connection-state=new connection-nat-state=!dstnat in-interface-list=WAN comment="defconf: drop all from WAN not DSTNATed"
                      }
                        /ip neighbor discovery-settings set discover-interface-list=LAN
                        /tool mac-server set allowed-interface-list=LAN
